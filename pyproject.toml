@@ -1,0 +1,55 @@
+[project]
+name = "sbcluster"
+description = "Spectral Bridges clustering algorithm"
+readme = "README.md"
+urls = { "Source" = "https://github.com/felixlaplante0/sbcluster" }
+authors = [{ name = "Félix Laplante" }]
+requires-python = ">=3.10"
+dependencies = ["numpy", "scipy", "scikit-learn", "fastkmeanspp"]
+dynamic = ["version"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+]
+
+[build-system]
+requires = ["setuptools>=42", "setuptools-scm[toml]>=6.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["sbcluster"]
+
+[tool.setuptools_scm]
+version_scheme = "post-release"
+local_scheme = "no-local-version"
+
+[tool.setuptools.package-data]
+mypkg = ["py.typed"]
+
+[tool.ruff]
+lint.select = [
+    "D",   # pydocstyle (docstring conventions)
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "S",   # flake8-bandit (security)
+    "T20", # flake8-print
+    "PT",  # flake8-pytest-style
+    "Q",   # flake8-quotes
+    "RET", # flake8-return
+    "SIM", # flake8-simplify
+    "ARG", # flake8-unused-arguments
+    "ERA", # eradicate (commented code)
+    "PL",  # Pylint
+    "RUF", # Ruff-specific rules
+]
+lint.ignore = ["D417", "PLR0913"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
