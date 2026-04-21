@@ -11,24 +11,27 @@ from sklearn.utils.validation import validate_data  # type: ignore
 
 
 @njit(cache=True, inline="always")  # type: ignore
-def _where_and_num(mask: int, d: int) -> tuple[np.ndarray, int]:
-    """Returns the indices of set bits in mask and their count.
+def _where_and_num(pmask: int, j: int, d: int) -> tuple[np.ndarray, int]:
+    """Returns the indices of set bits in pmask and their count.
 
     Args:
-        mask (int): Bitmask encoding a subset of variables.
+        pmask (int): Bitmask encoding a subset of variables.
         d (int): Number of variables.
 
     Returns:
         tuple[np.ndarray, int]: Index array and number of set bits.
     """
-    out = np.empty(d, dtype=np.int64)
+    out = np.empty(d - 1, dtype=np.int32)
     i = k = 0
 
-    while mask:
-        if mask & 1:
-            out[k] = i
+    while pmask:
+        if pmask & 1:
+            if i < j:
+                out[k] = i
+            else:
+                out[k] = i + 1
             k += 1
-        mask >>= 1
+        pmask >>= 1
         i += 1
 
     return out[:k], k
@@ -56,21 +59,21 @@ def _cholesky_solve_norm_inplace(A, b):
 
 @njit(cache=True, inline="always")  # type: ignore
 def _score(
-    cov_matrix: np.ndarray, target: int, mask: int, d: int, penalty: float
+    cov_matrix: np.ndarray, target: int, pmask: int, d: int, penalty: float
 ) -> float:
-    """Solve least squares for target regressed on the variables in mask.
+    """Solve least squares for target regressed on the variables in pmask.
 
     Args:
         cov_matrix (np.ndarray): cov_matrixariance matrix.
         target (int): Index of the response variable.
-        mask (int): Bitmask encoding the predictor variables.
+        pmask (int): Bitmask encoding the predictor variables.
         d (int): Number of variables.
         penalty (float): Regularization penalty per parent.
 
     Returns:
-        float: The score for the given target, mask, and penalty.
+        float: The score for the given target, pmask, and penalty.
     """
-    parents, k = _where_and_num(mask, d)
+    parents, k = _where_and_num(pmask, target, d)
     A = np.empty((k, k), dtype=np.float64)
     b = np.empty(k, dtype=np.float64)
 
@@ -98,29 +101,40 @@ def _parents_dp(
     Returns:
         tuple[np.ndarray, np.ndarray]: Best scores and best parent sets.
     """
-    n = 1 << d
-    best_scores = np.empty((d, n), dtype=np.float64)
-    best_parent_sets = np.empty((d, n), dtype=np.int64)
+    n = 1 << (d - 1)
+    best_scores = np.empty((d, n), dtype=np.float32)
+    best_parent_sets = np.empty((d, n), dtype=np.int32)
 
     for j in prange(d):
         best_scores[j, 0] = cov_matrix[j, j]
         best_parent_sets[j, 0] = 0
-        for mask in range(1, n):
-            if (mask >> j) & 1:
-                continue
-            cur_best_score = _score(cov_matrix, j, mask, d, penalty)
-            cur_best_set = bits = mask
+        for pmask in range(1, n):
+            cur_best_score = _score(cov_matrix, j, pmask, d, penalty)
+            cur_best_set = bits = pmask
             while bits:
                 lsb = bits & -bits
-                submask = mask ^ lsb
-                if best_scores[j, submask] < cur_best_score:
-                    cur_best_score = best_scores[j, submask]
-                    cur_best_set = best_parent_sets[j, submask]
+                sub_pmask = pmask ^ lsb
+                if best_scores[j, sub_pmask] < cur_best_score:
+                    cur_best_score = best_scores[j, sub_pmask]
+                    cur_best_set = best_parent_sets[j, sub_pmask]
                 bits ^= lsb
-            best_scores[j, mask] = cur_best_score
-            best_parent_sets[j, mask] = cur_best_set
+            best_scores[j, pmask] = cur_best_score
+            best_parent_sets[j, pmask] = cur_best_set
 
     return best_scores, best_parent_sets
+
+
+@njit(cache=True, inline="always")
+def pack_mask(mask: int, j: int) -> int:
+    """Removes bit j from mask.
+
+    Args:
+        mask (int): Bitmask encoding a subset of variables.
+        j (int): Index of the target bit.
+    """
+    lower = mask & ((1 << j) - 1)
+    upper = mask >> (j + 1)
+    return lower | (upper << j)
 
 
 @njit(cache=True)  # type: ignore
@@ -135,8 +149,8 @@ def _sink_dp(best_scores: np.ndarray, d: int) -> tuple[np.ndarray, float]:
         tuple(np.ndarray, float): Optimal sink index for each subset and inertia.
     """
     n = 1 << d
-    H = np.zeros(n, dtype=np.float64)
-    sinks = np.full(n, -1, dtype=np.int64)
+    H = np.zeros(n, dtype=np.float32)
+    sinks = np.full(n, -1, dtype=np.int32)
 
     for mask in range(1, n):
         cur_best_score = np.inf
@@ -146,7 +160,8 @@ def _sink_dp(best_scores: np.ndarray, d: int) -> tuple[np.ndarray, float]:
         while bits:
             if bits & 1:
                 prev_mask = mask ^ (1 << s)
-                score = H[prev_mask] + best_scores[s, prev_mask]
+                prev_pmask = pack_mask(prev_mask, s)
+                score = H[prev_mask] + best_scores[s, prev_pmask]
                 if score < cur_best_score:
                     cur_best_score = score
                     cur_best_sink = s
@@ -168,7 +183,7 @@ def _causal_order(sinks: np.ndarray, d: int) -> np.ndarray:
     Returns:
         np.ndarray: Causal order from source to sink.
     """
-    order = np.empty(d, dtype=np.int64)
+    order = np.empty(d, dtype=np.int32)
     mask = (1 << d) - 1
 
     for i in range(d):
@@ -200,7 +215,7 @@ def _ols_weights(
         j = order[t]
         parents_mask = best_parent_sets[j, mask]
         if parents_mask:
-            parents = _where_and_num(parents_mask, d)[0]
+            parents = _where_and_num(parents_mask, d + 1, d)[0]
             W[j, parents] = np.linalg.solve(
                 cov_matrix[np.ix_(parents, parents)], cov_matrix[parents, j]
             )
