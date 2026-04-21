@@ -1,0 +1,21 @@
+name: Lint
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    container:
+      image: python:latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install ruff
+        run: pip install ruff
+      - name: Format check
+        run: ruff format exactdag
+      - name: Lint
+        run: ruff check exactdag

@@ -1,0 +1,31 @@
+name: Pages
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pages:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.13
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install system dependencies
+        run: apt-get update && apt-get install -y git
+      - name: Install Python dependencies
+        run: |
+          pip install sphinx furo
+          pip install .
+      - name: Build documentation
+        run: sphinx-build -b html docs/source public
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
