@@ -1,6 +1,7 @@
 import time
 
 import numpy as np
+
 from exactdag import ExactDAG
 
 rng = np.random.seed(42)
