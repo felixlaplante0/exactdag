@@ -78,8 +78,8 @@ def _score(
         for j in range(k):
             A[i, j] = cov_matrix[parents[i], parents[j]]
 
-    r = _cholesky_solve_norm_inplace(A, b)
-    return cov_matrix[target, target] - r + penalty * k
+    sq_norm = _cholesky_solve_norm_inplace(A, b)
+    return cov_matrix[target, target] - sq_norm + penalty * k
 
 
 @njit(cache=True, parallel=True)  # type: ignore
