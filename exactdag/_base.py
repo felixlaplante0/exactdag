@@ -21,7 +21,7 @@ def _where_and_num(mask: int, d: int) -> tuple[np.ndarray, int]:
     Returns:
         tuple[np.ndarray, int]: Index array and number of set bits.
     """
-    out = np.zeros(d, dtype=np.int64)
+    out = np.empty(d, dtype=np.int64)
     i = k = 0
 
     while mask:
@@ -37,15 +37,14 @@ def _where_and_num(mask: int, d: int) -> tuple[np.ndarray, int]:
 @njit(cache=True)  # type: ignore
 def _solve_lower(L: np.ndarray, b: np.ndarray) -> np.ndarray:
     n = L.shape[0]
-    out = np.empty(n, dtype=np.float64)
 
     for i in range(n):
         s = b[i]
         for j in range(i):
-            s -= L[i, j] * out[j]
-        out[i] = s / L[i, i]
+            s -= L[i, j] * b[j]
+        b[i] = s / L[i, i]
 
-    return out
+    return b
 
 
 @njit(cache=True)  # type: ignore
@@ -68,10 +67,10 @@ def _score(
     b = np.empty(k, dtype=np.float64)
 
     for i in range(k):
-        pa_i = parents[i]
-        b[i] = cov_matrix[target, pa_i]
+        parents_i = parents[i]
+        b[i] = cov_matrix[target, parents_i]
         for j in range(k):
-            A[i, j] = cov_matrix[pa_i, parents[j]]
+            A[i, j] = cov_matrix[parents_i, parents[j]]
 
     L = np.linalg.cholesky(A)
     y = _solve_lower(L, b)
@@ -91,14 +90,14 @@ def _scores_table(cov_matrix: np.ndarray, d: int, penalty: float) -> np.ndarray:
         np.ndarray: The scores table.
     """
     n = 1 << d
-    table = np.full((d, n), np.inf, dtype=np.float64)
+    table = np.empty((d, n), dtype=np.float64)
 
     for j in range(d):
         table[j, 0] = cov_matrix[j, j]
-        for mask in range(1, n):
-            if (mask >> j) & 1:
-                continue
+        mask = full = (n - 1) ^ (1 << j)
+        while mask:
             table[j, mask] = _score(cov_matrix, j, mask, d, penalty)
+            mask = (mask - 1) & full
 
     return table
 
@@ -115,17 +114,15 @@ def _parents_dp(table: np.ndarray, d: int) -> tuple[np.ndarray, np.ndarray]:
         tuple[np.ndarray, np.ndarray]: Best scores and best parent sets.
     """
     n = 1 << d
-    best_scores = np.full((d, n), np.inf, dtype=np.float64)
-    best_parent_sets = np.zeros((d, n), dtype=np.int64)
+    best_scores = np.empty((d, n), dtype=np.float64)
+    best_parent_sets = np.empty((d, n), dtype=np.int64)
 
     for j in range(d):
         for mask in range(n):
             if (mask >> j) & 1:
                 continue
-
             cur_best_score = table[j, mask]
             cur_best_set = bits = mask
-
             while bits:
                 lsb = bits & -bits
                 submask = mask ^ lsb
@@ -133,7 +130,6 @@ def _parents_dp(table: np.ndarray, d: int) -> tuple[np.ndarray, np.ndarray]:
                     cur_best_score = best_scores[j, submask]
                     cur_best_set = best_parent_sets[j, submask]
                 bits ^= lsb
-
             best_scores[j, mask] = cur_best_score
             best_parent_sets[j, mask] = cur_best_set
 
