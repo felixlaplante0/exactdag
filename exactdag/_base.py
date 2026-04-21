@@ -5,12 +5,12 @@ from __future__ import annotations
 from typing import Self, cast
 
 import numpy as np
-from numba import njit  # type: ignore
+from numba import njit, prange  # type: ignore
 from sklearn.base import BaseEstimator  # type: ignore
 from sklearn.utils.validation import validate_data  # type: ignore
 
 
-@njit(cache=True)  # type: ignore
+@njit(cache=True, inline="always")  # type: ignore
 def _where_and_num(mask: int, d: int) -> tuple[np.ndarray, int]:
     """Returns the indices of set bits in mask and their count.
 
@@ -34,20 +34,19 @@ def _where_and_num(mask: int, d: int) -> tuple[np.ndarray, int]:
     return out[:k], k
 
 
-@njit(cache=True)  # type: ignore
+@njit(cache=True, inline="always")  # type: ignore
 def _solve_lower(L: np.ndarray, b: np.ndarray) -> np.ndarray:
     n = L.shape[0]
 
     for i in range(n):
-        s = b[i]
         for j in range(i):
-            s -= L[i, j] * b[j]
-        b[i] = s / L[i, i]
+            b[i] -= L[i, j] * b[j]
+        b[i] /= L[i, i]
 
     return b
 
 
-@njit(cache=True)  # type: ignore
+@njit(cache=True, inline="always")  # type: ignore
 def _score(
     cov_matrix: np.ndarray, target: int, mask: int, d: int, penalty: float
 ) -> float:
@@ -77,7 +76,7 @@ def _score(
     return cov_matrix[target, target] - np.sum(y**2) + penalty * k
 
 
-@njit(cache=True)  # type: ignore
+@njit(cache=True, parallel=True)  # type: ignore
 def _scores_table(cov_matrix: np.ndarray, d: int, penalty: float) -> np.ndarray:
     """Computes the local scores for every node and candidate parents set.
 
@@ -92,7 +91,7 @@ def _scores_table(cov_matrix: np.ndarray, d: int, penalty: float) -> np.ndarray:
     n = 1 << d
     table = np.empty((d, n), dtype=np.float64)
 
-    for j in range(d):
+    for j in prange(d):
         table[j, 0] = cov_matrix[j, j]
         mask = full = (n - 1) ^ (1 << j)
         while mask:
@@ -102,7 +101,7 @@ def _scores_table(cov_matrix: np.ndarray, d: int, penalty: float) -> np.ndarray:
     return table
 
 
-@njit(cache=True)  # type: ignore
+@njit(cache=True, parallel=True)  # type: ignore
 def _parents_dp(table: np.ndarray, d: int) -> tuple[np.ndarray, np.ndarray]:
     """Find the best subset as parents set for each node and candidate set.
 
@@ -117,7 +116,7 @@ def _parents_dp(table: np.ndarray, d: int) -> tuple[np.ndarray, np.ndarray]:
     best_scores = np.empty((d, n), dtype=np.float64)
     best_parent_sets = np.empty((d, n), dtype=np.int64)
 
-    for j in range(d):
+    for j in prange(d):
         for mask in range(n):
             if (mask >> j) & 1:
                 continue
