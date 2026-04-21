@@ -8,8 +8,8 @@ ExactDAG recovers a **Directed Acyclic Graph (DAG)** from observational data by 
 
 Given $n$ samples over $d$ variables, ExactDAG:
 
-1. **Scores table** — computes the local score for every `(node, parent set)` pair using the empirical covariance matrix. The score for node $j$ with parent set $S$ is the OLS residual variance plus a regularization term `penalty * |S|`.
-2. **Parent DP** — for each node and each candidate ancestor set, selects the best parent subset in $O(d \cdot 3^d)$ time.
+1. **Scores table** — computes the local score for every `(node, parents set)` pair using the empirical covariance matrix. The score for node $j$ with parent set $S$ is the OLS residual variance plus a regularization term `penalty * |S|`, in $O(d \cdot 2^{d-1})$ time.
+2. **Parent DP** — for each node and each candidate parents set, selects the best parents subset in $O(d \cdot 2^d)$ time.
 3. **Sink DP** — finds the optimal causal ordering by choosing the best sink node for every subset of variables in $O(d^2 \cdot 2^d)$ time.
 
 After the ordering is found, OLS regression recovers the edge weights.
