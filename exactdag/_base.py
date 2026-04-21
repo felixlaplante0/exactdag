@@ -34,16 +34,24 @@ def _where_and_num(mask: int, d: int) -> tuple[np.ndarray, int]:
     return out[:k], k
 
 
-@njit(cache=True, inline="always")  # type: ignore
-def _solve_lower(L: np.ndarray, b: np.ndarray) -> np.ndarray:
-    n = L.shape[0]
+@njit(cache=True, inline="always")
+def _cholesky_solve_norm_inplace(A, b):
+    n = A.shape[0]
+    sq_norm = 0.0
 
     for i in range(n):
-        for j in range(i):
-            b[i] -= L[i, j] * b[j]
-        b[i] /= L[i, i]
+        for j in range(i + 1):
+            for k in range(j):
+                A[i, j] -= A[i, k] * A[j, k]
+            if i == j:
+                A[i, i] = np.sqrt(A[i, i])
+            else:
+                A[i, j] /= A[j, j]
+                b[i] -= A[i, j] * b[j]
+        b[i] /= A[i, i]
+        sq_norm += b[i] ** 2
 
-    return b
+    return sq_norm
 
 
 @njit(cache=True, inline="always")  # type: ignore
@@ -66,14 +74,12 @@ def _score(
     b = np.empty(k, dtype=np.float64)
 
     for i in range(k):
-        parents_i = parents[i]
-        b[i] = cov_matrix[target, parents_i]
+        b[i] = cov_matrix[target, parents[i]]
         for j in range(k):
-            A[i, j] = cov_matrix[parents_i, parents[j]]
+            A[i, j] = cov_matrix[parents[i], parents[j]]
 
-    L = np.linalg.cholesky(A)
-    y = _solve_lower(L, b)
-    return cov_matrix[target, target] - np.sum(y**2) + penalty * k
+    r = _cholesky_solve_norm_inplace(A, b)
+    return cov_matrix[target, target] - r + penalty * k
 
 
 @njit(cache=True, parallel=True)  # type: ignore
@@ -225,24 +231,30 @@ class ExactDAG(BaseEstimator):
     """Exact dynamic programming-based causal discovery.
 
     Attributes:
-        center (bool): Whether to the data.
+        fit_intercept (bool): Whether to center the data.
         penalty (float): Regularization penalty per parent.
-        order_ (np.ndarray): Causal order from source to sink.
+        causal_order_ (np.ndarray): Causal order from source to sink.
         adjacency_matrix_ (np.ndarray): Causal weight matrix.
         intercept_ (np.ndarray): Intercept of the regression models.
         inertia_ (float): Residual sum of squares of the learned DAG.
     """
 
+    fit_intercept: bool
     penalty: float
+    causal_order_: np.ndarray
+    adjacency_matrix_: np.ndarray
+    intercept_: np.ndarray
+    inertia_: np.ndarray
 
-    def __init__(self, center: bool = True, penalty: float = 0) -> None:
+    def __init__(self, fit_intercept: bool = True, penalty: float = 0) -> None:
         """Initialize ExactDAG.
 
         Args:
-            center (bool, optional): Whether to center the data. Defaults to True.
+            fit_intercept (bool, optional): Whether to center the data. Defaults to
+                True.
             penalty (float, optional): Regularization penalty per parent. Defaults to 0.
         """
-        self.center = center
+        self.fit_intercept = fit_intercept
         self.penalty = penalty
 
     def fit(self, X: np.typing.ArrayLike, y: None = None) -> Self:  # noqa: ARG002
@@ -257,7 +269,7 @@ class ExactDAG(BaseEstimator):
         X = cast(np.ndarray, validate_data(self, X, dtype=np.float64))  # type: ignore
         d = X.shape[1]
 
-        if self.center:
+        if self.fit_intercept:
             shift = X.mean(axis=0)
             X = X - shift  # type: ignore
 
@@ -272,7 +284,7 @@ class ExactDAG(BaseEstimator):
             self.causal_order_, best_parent_sets, cov_matrix, d
         )
 
-        if self.center:
+        if self.fit_intercept:
             self.intercept_ = shift - self.adjacency_matrix_ @ shift
 
         return self
