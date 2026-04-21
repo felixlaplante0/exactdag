@@ -65,6 +65,7 @@ def _score(
         target (int): Index of the response variable.
         mask (int): Bitmask encoding the predictor variables.
         d (int): Number of variables.
+        penalty (float): Regularization penalty per parent.
 
     Returns:
         float: The score for the given target, mask, and penalty.
@@ -83,37 +84,16 @@ def _score(
 
 
 @njit(cache=True, parallel=True)  # type: ignore
-def _scores_table(cov_matrix: np.ndarray, d: int, penalty: float) -> np.ndarray:
-    """Computes the local scores for every node and candidate parents set.
-
-    Args:
-        cov_matrix (np.ndarray): cov_matrixariance matrix.
-        d (int): Number of variables.
-        penalty (float): Regularization penalty per parent.
-
-    Returns:
-        np.ndarray: The scores table.
-    """
-    n = 1 << d
-    table = np.empty((d, n), dtype=np.float64)
-
-    for j in prange(d):
-        table[j, 0] = cov_matrix[j, j]
-        mask = full = (n - 1) ^ (1 << j)
-        while mask:
-            table[j, mask] = _score(cov_matrix, j, mask, d, penalty)
-            mask = (mask - 1) & full
-
-    return table
-
-
-@njit(cache=True, parallel=True)  # type: ignore
-def _parents_dp(table: np.ndarray, d: int) -> tuple[np.ndarray, np.ndarray]:
+def _parents_dp(
+    cov_matrix: np.ndarray, d: int, penalty: float
+) -> tuple[np.ndarray, np.ndarray]:
     """Find the best subset as parents set for each node and candidate set.
 
     Args:
-        table (np.ndarray): Scores table.
+        cov_matrix (np.ndarray): cov_matrixariance matrix.
+        target (int): Index of the response variable.
         d (int): Number of variables.
+        penalty (float): Regularization penalty per parent.
 
     Returns:
         tuple[np.ndarray, np.ndarray]: Best scores and best parent sets.
@@ -123,10 +103,12 @@ def _parents_dp(table: np.ndarray, d: int) -> tuple[np.ndarray, np.ndarray]:
     best_parent_sets = np.empty((d, n), dtype=np.int64)
 
     for j in prange(d):
-        for mask in range(n):
+        best_scores[j, 0] = cov_matrix[j, j]
+        best_parent_sets[j, 0] = 0
+        for mask in range(1, n):
             if (mask >> j) & 1:
                 continue
-            cur_best_score = table[j, mask]
+            cur_best_score = _score(cov_matrix, j, mask, d, penalty)
             cur_best_set = bits = mask
             while bits:
                 lsb = bits & -bits
@@ -258,7 +240,7 @@ class ExactDAG(BaseEstimator):
         self.penalty = penalty
 
     def fit(self, X: np.typing.ArrayLike, y: None = None) -> Self:  # noqa: ARG002
-        """Fit the ExactDAG algorithm.
+        """Fits the ExactDAG algorithm.
 
         Args:
             X (np.typing.ArrayLike): Input data of shape (n_samples, d).
@@ -275,8 +257,7 @@ class ExactDAG(BaseEstimator):
 
         cov_matrix = cast(np.ndarray, X.T @ X)  # type: ignore
 
-        scores_table = _scores_table(cov_matrix, d, self.penalty)
-        best_scores, best_parent_sets = _parents_dp(scores_table, d)
+        best_scores, best_parent_sets = _parents_dp(cov_matrix, d, self.penalty)
         sinks, self.inertia_ = _sink_dp(best_scores, d)
 
         self.causal_order_ = _causal_order(sinks, d)
