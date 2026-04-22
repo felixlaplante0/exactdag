@@ -108,7 +108,7 @@ def _cholesky_solve_norm_inplace(A: np.ndarray, b: np.ndarray, n: int):
 def _score(
     cov_matrix: np.ndarray, target: int, mask: int, d: int, penalty: float
 ) -> float:
-    """Solve least squares for target regressed on the variables in pmask.
+    """Solve least squares for target regressed on the variables in mask.
 
     Args:
         cov_matrix (np.ndarray): cov_matrixariance matrix.
@@ -118,7 +118,7 @@ def _score(
         penalty (float): Regularization penalty per parent.
 
     Returns:
-        float: The score for the given target, pmask, and penalty.
+        float: The score for the given target, mask, and penalty.
     """
     A, b, k = _get_A_b_num(cov_matrix, mask, target, d)
     sq_norm = _cholesky_solve_norm_inplace(A, b, k)
