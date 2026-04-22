@@ -10,7 +10,7 @@ from sklearn.base import BaseEstimator  # type: ignore
 from sklearn.utils.validation import validate_data  # type: ignore
 
 
-@njit(cache=True, inline="always")
+@njit(cache=True, inline="always")  # type: ignore
 def pack_mask(mask: int, j: int) -> int:
     """Removes bit j from mask.
 
@@ -23,7 +23,7 @@ def pack_mask(mask: int, j: int) -> int:
     return lower | (upper << j)
 
 
-@njit(cache=True, inline="always")
+@njit(cache=True, inline="always")  # type: ignore
 def unpack_mask(pmask: int, j: int) -> int:
     """Recovers full mask from pmask.
 
@@ -37,10 +37,10 @@ def unpack_mask(pmask: int, j: int) -> int:
 
 
 @njit(cache=True, inline="always")  # type: ignore
-def _get_A_b_num(
+def _get_A_num(
     cov_matrix: np.ndarray, mask: int, target: int, d: int
-) -> tuple[np.ndarray, np.ndarray, int]:
-    """Builds the packed lower-triangular system matrix A and right-hand side b.
+) -> tuple[np.ndarray, int]:
+    """Gets the packed lower-triangular system matrix A and number of parents.
 
     Args:
         cov_matrix (np.ndarray): Covariance matrix.
@@ -49,18 +49,14 @@ def _get_A_b_num(
         d (int): Number of variables.
 
     Returns:
-        tuple[np.ndarray, np.ndarray, int]: Packed lower-triangular matrix, right-hand
-            side vector, and number of parents.
+        tuple[np.ndarray, int]: Packed lower-triangular matrix, and number of parents.
     """
-    m = d - 1
-    parents = np.empty(m, dtype=np.int32)
-    A = np.empty(m * (m + 1) // 2, dtype=np.float64)
-    b = np.empty(m, dtype=np.float64)
+    parents = np.empty(d - 1, dtype=np.int32)
+    A = np.empty(d * (d + 1) // 2, dtype=np.float64)
     i = k = 0
 
     while mask:
         if mask & 1:
-            b[k] = cov_matrix[target, i]
             kk = k * (k + 1) // 2
             for j in range(k):
                 A[kk + j] = cov_matrix[i, parents[j]]
@@ -70,24 +66,26 @@ def _get_A_b_num(
         mask >>= 1
         i += 1
 
-    return A, b, k
+    kk = k * (k + 1) // 2
+    for j in range(k):
+        A[kk + j] = cov_matrix[target, parents[j]]
+    A[kk + k] = cov_matrix[target, target]
+
+    return A, k
 
 
-@njit(cache=True, inline="always")
-def _cholesky_solve_norm_inplace(A: np.ndarray, b: np.ndarray, n: int):
+@njit(cache=True, inline="always")  # type: ignore
+def _cholesky_solve_norm_inplace(A: np.ndarray, n: int):
     """Solves via in-place Cholesky decomposition and returns the squared norm.
 
     Args:
         A (np.ndarray): Packed lower-triangular matrix, modified in-place.
-        b (np.ndarray): Right-hand side vector, overwritten with the solution.
         n (int): Size of the system.
 
     Returns:
         float: Squared norm of the solution vector.
     """
-    sq_norm = 0.0
-
-    for i in range(n):
+    for i in range(n + 1):
         ii = i * (i + 1) // 2
         for j in range(i + 1):
             ij = ii + j
@@ -97,11 +95,8 @@ def _cholesky_solve_norm_inplace(A: np.ndarray, b: np.ndarray, n: int):
                 A[ij] = np.sqrt(A[ij])
             else:
                 A[ij] /= A[j * (j + 1) // 2 + j]
-                b[i] -= A[ij] * b[j]
-        b[i] /= A[ii + i]
-        sq_norm += b[i] ** 2
 
-    return sq_norm
+    return A[n * (n + 3) // 2] ** 2
 
 
 @njit(cache=True, inline="always")  # type: ignore
@@ -120,9 +115,8 @@ def _score(
     Returns:
         float: The score for the given target, mask, and penalty.
     """
-    A, b, k = _get_A_b_num(cov_matrix, mask, target, d)
-    sq_norm = _cholesky_solve_norm_inplace(A, b, k)
-    return cov_matrix[target, target] - sq_norm + penalty * k
+    A, k = _get_A_num(cov_matrix, mask, target, d)
+    return _cholesky_solve_norm_inplace(A, k) + penalty * k
 
 
 @njit(cache=True, parallel=True)  # type: ignore
@@ -145,9 +139,7 @@ def _parents_dp(
     best_parents_sets = np.empty((d, n), dtype=np.int32)
 
     for j in prange(d):
-        best_scores[j, 0] = cov_matrix[j, j]
-        best_parents_sets[j, 0] = 0
-        for pmask in range(1, n):
+        for pmask in range(n):
             cur_best_score = _score(cov_matrix, j, unpack_mask(pmask, j), d, penalty)
             cur_best_set = bits = pmask
             while bits:
@@ -221,7 +213,7 @@ def _causal_order(sinks: np.ndarray, d: int) -> np.ndarray:
 
 def _ols_weights(
     order: np.ndarray, best_parents_sets: np.ndarray, cov_matrix: np.ndarray, d: int
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> np.ndarray:
     """Recovers regression edge weights given the causal order and parent sets.
 
     Args:
@@ -266,7 +258,7 @@ class ExactDAG(BaseEstimator):
     causal_order_: np.ndarray
     adjacency_matrix_: np.ndarray
     intercept_: np.ndarray
-    inertia_: np.ndarray
+    inertia_: float
 
     def __init__(self, fit_intercept: bool = True, penalty: float = 0) -> None:
         """Initialize ExactDAG.
@@ -306,6 +298,6 @@ class ExactDAG(BaseEstimator):
         )
 
         if self.fit_intercept:
-            self.intercept_ = shift - self.adjacency_matrix_ @ shift
+            self.intercept_ = shift - self.adjacency_matrix_ @ shift  # type: ignore
 
         return self
