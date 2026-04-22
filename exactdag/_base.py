@@ -188,7 +188,7 @@ def _sink_dp(best_scores: np.ndarray, d: int) -> tuple[np.ndarray, float]:
 
 
 def _causal_order(sinks: np.ndarray, d: int) -> np.ndarray:
-    """Recov_matrixers the causal order from source to sink.
+    """Recovers the causal order from source to sink.
 
     Args:
         sinks (np.ndarray): Optimal sink index for each subset.
@@ -211,7 +211,7 @@ def _causal_order(sinks: np.ndarray, d: int) -> np.ndarray:
 def _ols_weights(
     order: np.ndarray, best_parents_sets: np.ndarray, cov_matrix: np.ndarray, d: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Recover regression edge weights given the causal order and parent sets.
+    """Recovers regression edge weights given the causal order and parent sets.
 
     Args:
         order (np.ndarray): Causal order.
