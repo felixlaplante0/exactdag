@@ -87,14 +87,16 @@ def _cholesky_solve_norm_inplace(A: np.ndarray, n: int):
     """
     for i in range(n + 1):
         ii = i * (i + 1) // 2
-        for j in range(i + 1):
+        for j in range(i):
             ij = ii + j
             for k in range(j):
                 A[ij] -= A[ii + k] * A[j * (j + 1) // 2 + k]
-            if i == j:
-                A[ij] = np.sqrt(A[ij])
-            else:
-                A[ij] /= A[j * (j + 1) // 2 + j]
+            A[ij] /= A[j * (j + 1) // 2 + j]
+        j = i
+        ij = ii + j
+        for k in range(j):
+            A[ij] -= A[ii + k] * A[j * (j + 1) // 2 + k]
+        A[ij] = np.sqrt(A[ij])
 
     return A[n * (n + 3) // 2] ** 2
 
@@ -119,7 +121,7 @@ def _score(
     return _cholesky_solve_norm_inplace(A, k) + penalty * k
 
 
-@njit(cache=True, parallel=True)  # type: ignore
+@njit(cache=True, parallel=True, fastmath=True)  # type: ignore
 def _parents_dp(
     cov_matrix: np.ndarray, d: int, penalty: float
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -155,7 +157,7 @@ def _parents_dp(
     return best_scores, best_parents_sets
 
 
-@njit(cache=True)  # type: ignore
+@njit(cache=True, fastmath=True)  # type: ignore
 def _sink_dp(best_scores: np.ndarray, d: int) -> tuple[np.ndarray, float]:
     """Find the optimal sink node for every subset via dynamic programming.
 
