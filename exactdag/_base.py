@@ -265,7 +265,7 @@ class ExactDAG(BaseEstimator):
     inertia_: float
 
     @validate_params(
-        {"fit_intercept": [bool], "penalty": Interval(Real, 0, None, closed="left")},
+        {"fit_intercept": [bool], "penalty": [Interval(Real, 0, None, closed="left")]},
         prefer_skip_nested_validation=True,
     )
     def __init__(self, fit_intercept: bool = True, penalty: float = 0) -> None:
