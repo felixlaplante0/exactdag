@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from numbers import Real
 from typing import Self, cast
 
 import numpy as np
 from numba import njit, prange  # type: ignore
 from sklearn.base import BaseEstimator  # type: ignore
+from sklearn.utils._param_validation import Interval, validate_params  # type: ignore
 from sklearn.utils.validation import validate_data  # type: ignore
 
 
@@ -262,6 +264,10 @@ class ExactDAG(BaseEstimator):
     intercept_: np.ndarray
     inertia_: float
 
+    @validate_params(
+        {"fit_intercept": [bool], "penalty": Interval(Real, 0, None, closed="left")},
+        prefer_skip_nested_validation=True,
+    )
     def __init__(self, fit_intercept: bool = True, penalty: float = 0) -> None:
         """Initialize ExactDAG.
 
@@ -273,6 +279,10 @@ class ExactDAG(BaseEstimator):
         self.fit_intercept = fit_intercept
         self.penalty = penalty
 
+    @validate_params(
+        {"X": ["array-like"], "y": [None]},
+        prefer_skip_nested_validation=True,
+    )
     def fit(self, X: np.typing.ArrayLike, y: None = None) -> Self:  # noqa: ARG002
         """Fits the ExactDAG algorithm.
 
